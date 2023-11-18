@@ -917,8 +917,8 @@ const getInvoiceLength = async (req, res) => {
 const workNotAlloted = async (req, res) => {
   try {
     const work = await Invoice.find({ allotedWork: false }).select(
-      "name createdAt service serviceDuration "
-    );
+      "name createdAt services serviceDuration dueDate"
+    ).populate("client_id");
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -1033,7 +1033,7 @@ const pendingSalary = async (req, res) => {
     if (req.query?.status) {
       const { status } = req.query;
       const employees = await Employee.find({ salaryStatus: status })
-        .select("name salaryStatus salary pic name expertize ")
+        .select("name salaryStatus salary pic name expertize advanceSalary mobile")
         .sort({ createdAt: -1 });
       const page = parseInt(req.query.page);
       const limit = parseInt(req.query.limit);
@@ -1122,20 +1122,21 @@ const giveSalary = async (req, res) => {
       {},
       {},
       { sort: { createdAt: -1 } }
-    ).select("-_id");
-    const newTransaction = await Transaction.create({
-      name: "Salary",
-      amount: employee.salary,
-      type: "Expense",
-      description: `Salary to ${employee.name}`,
-      remainingBalance: remainingBalance - employee.salary,
-    });
-    const addExpense = await Expense.create({
-      name: "Salary",
-      amount: employee.salary,
-      date: new Date(),
-    });
-
+      ).select("-_id");
+      const newTransaction = await Transaction.create({
+        name: "Salary",
+        amount: employee.salary,
+        type: "Expense",
+        description: `Salary to ${employee.name}`,
+        remainingBalance: remainingBalance - employee.salary,
+      });
+      const addExpense = await Expense.create({
+        name: "Salary",
+        description: `Salary to ${employee.name}`,
+        amount: employee.salary,
+        date: new Date(),
+      });
+      
     if (!addExpense) {
       return res.status(400).send({
         message: "Cannot create expense",

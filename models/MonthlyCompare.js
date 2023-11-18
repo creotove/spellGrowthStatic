@@ -1,45 +1,21 @@
 const mongoose = require("mongoose");
 const monthlyCompareSchema = new mongoose.Schema(
   {
-    totalIncomeCurrent: {
+    totalIncome: {
       type: Number,
-      required: [true, "Name of client is required"],
+      required: [true, "Total Income is required"],
     },
-    totalIncomePrevious: {
+    totalExpense: {
       type: Number,
-      required: [true, "Client id is required"],
+      required: [true, "Total Expense is required"],
     },
-    totalExpenseCurrent: {
+    totalSaves: {
       type: Number,
-      required: [true, "Name of bussiness is required"],
+      required: [true, "Total Savings is required"],
     },
-    totalExpensePrevious: {
+    totalInvestment: {
       type: Number,
-      required: [true, "Mobile number of client is required"],
-    },
-    totalSavesCurrent: {
-      type: Number,
-      required: [true, "Email of client is required"],
-    },
-    totalSavesPrevious: {
-      type: Number,
-      required: [true, "City of client is required"],
-    },
-    totalInvestmentCurrent: {
-      type: Number,
-      required: [true, "State of client is required"],
-    },
-    totalInvestmentPrevious: {
-      type: Number,
-      required: [true, "State of client is required"],
-    },
-    totalUpcomingCurrent: {
-      type: Number,
-      required: [true, "State of client is required"],
-    },
-    totalUpcomingPrevious: {
-      type: Number,
-      required: [true, "State of client is required"],
+      required: [true, "Total Investment is required"],
     },
   },
   { timestamps: true }
