@@ -1,21 +1,21 @@
 const mongoose = require("mongoose");
 const invoiceSchema = new mongoose.Schema(
   {
-    name: {
+    clientId: {
       type: String,
-      required: [true, "Name of client is required"],
+      ref: "client",
     },
-    phone: {
-      type: Number,
-      required: [true, "Phone number of client is required"],
-    },
-    email: {
-      type: String,
-      required: [true, "Email of client is required"],
+    client_id: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: "client",
     },
     invoiceNumber: {
       type: String,
       required: [true, "Invoice Number is required"],
+    },
+    addedDate: {
+      type: String,
+      required: [true, "Due Date is required"],
     },
     dueDate: {
       type: String,
@@ -33,6 +33,11 @@ const invoiceSchema = new mongoose.Schema(
       type: String,
       enum: ["Paid", "Pending"],
       default: "Pending",
+    },
+    serviceDuration: {
+      type: String,
+      enum: ["Yearly", "Monthly", "One Time"],
+      required: [true, "Service duration of client service is required"],
     },
     services: [
       {
@@ -54,6 +59,26 @@ const invoiceSchema = new mongoose.Schema(
         },
       },
     ],
+    onlinePaymentMethod: {
+      type: String,
+      default: "No Online Payment",
+    },
+    //
+    allotedWork: {
+      type: String,
+      enum: [true, false],
+      default: false,
+    },
+    allotedTo: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: "employee",
+    },
+    //
+    serviceStatus: {
+      type: String,
+      enum: ["Pending", "Completed"],
+      default: "Pending",
+    },
     paymentMethod: {
       type: String,
       enum: ["Cash", "Cheque", "Online"],

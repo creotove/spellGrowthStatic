@@ -7,6 +7,8 @@ const Invoice = require("../models/Invoice");
 const Transaction = require("../models/Transaction");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const Income = require("../models/Income");
+const MonthlyCompare = require("../models/MonthlyCompare");
 
 const signup = async (req, res) => {
   const { email, password } = req.body;
@@ -116,43 +118,48 @@ const addEmployee = async (req, res) => {
 const addClient = async (req, res) => {
   try {
     const {
-      fullName,
+      name,
       clientId,
       businessName,
       mobile,
       email,
       city,
       state,
-      service,
-      serviceDuration,
       websiteUrl,
       instagramUrl,
-      amount,
       pic,
-      refer,
+      referedBy,
     } = req.body;
     const data = {
-      name: fullName,
+      name,
       clientId,
       businessName,
       mobile,
       email,
       city,
       state,
-      service,
-      serviceDuration,
       websiteUrl,
       instagramUrl,
-      amount,
       pic,
-      refer,
+      referedBy,
     };
-    const existingClint = await Client.findOne({ clientId });
-    if (existingClint) {
+    const existingClient = await Client.findOne({ clientId });
+    if (existingClient) {
       return res.status(400).send({
         message: "Client already exists",
         success: false,
       });
+    }
+    if (!referedBy === "N/A") {
+      const referedClient = await Client.findOne({ clientId: referedBy });
+      if (!referedClient) {
+        return res.status(400).send({
+          message: "Refered Client not found",
+          success: false,
+        });
+      }
+      referedClient.referenced.push(newClient._id);
+      referedClient.save();
     }
     const newClient = await Client.create(data);
     if (!newClient) {
@@ -161,6 +168,8 @@ const addClient = async (req, res) => {
         success: false,
       });
     }
+
+    newClient.save();
     return res.status(201).send({
       message: "Client created successfully",
       success: true,
@@ -176,48 +185,79 @@ const addClient = async (req, res) => {
 };
 const addInvoice = async (req, res) => {
   try {
-    const {
-      name,
+    let {
       email,
-      phone,
-      todayDate,
+      addedDate,
       dueDate,
-      invoiceId,
       totalAmount,
       advanceAmount,
       serviceArrary,
       paymentMethod,
+      invoiceNumber,
+      serviceDuration,
+      onlinePaymentMethod,
     } = req.body;
+    const total = parseInt(totalAmount);
+    const advance = parseInt(advanceAmount);
+    if (onlinePaymentMethod === "") {
+      onlinePaymentMethod = "No Online Payment";
+    }
+    const clientId = await Client.findOne({ email }).select("clientId ");
     const data = {
-      name,
-      phone,
-      email,
-      invoiceId,
-      todayDate,
+      clientId: clientId.clientId,
+      client_id: clientId._id,
+      addedDate,
       dueDate,
-      totalAmount,
-      advanceAmount,
+      totalAmount: total,
+      advanceAmount: advance,
       services: serviceArrary,
       paymentMethod,
+      invoiceNumber,
+      serviceDuration,
     };
     const newInvoice = await Invoice.create(data);
-    const { remainingBalance } = await Transaction.findOne(
-      {},
-      {},
-      { sort: { created_at: -1 } }
-    ).select("remainingBalance -_id");
-    const newTransaction = await Transaction.create({
-      name,
-      amount: advanceAmount,
-      type: "Income",
-      description: "Advance amount of client",
-      remainingBalance: remainingBalance + advanceAmount,
-    });
-    const addIncome = await Asset.create({
-      name,
+    const balance =
+      (await Transaction.findOne({}, {}, { sort: { createdAt: -1 } }).select(
+        "remainingBalance -_id"
+      )) || 0;
+    if (!balance) {
+      remainingBalance = 0;
+    } else {
+      remainingBalance = balance.remainingBalance;
+    }
+
+    const client = await Client.findOneAndUpdate(
+      {
+        clientId: clientId.clientId,
+      },
+      {
+        $push: {
+          invoices: newInvoice._id,
+        },
+      }
+    );
+
+    if (!client) {
+      return res.status(400).send({
+        message: "Cannot create client",
+        success: false,
+      });
+    }
+
+    const newTransaction = await new Transaction();
+    newTransaction.name = client.name;
+    newTransaction.amount = advance;
+    newTransaction.type = "Income";
+    newTransaction.description = "Advance amount of client";
+    newTransaction.remainingBalance = remainingBalance + advance;
+
+    const addIncome = await Income.create({
+      name: "Advance payment",
+      description: `Advance amount of client ${client.name}`,
       amount: advanceAmount,
       date: new Date(),
     });
+
     if (!addIncome) {
       return res.status(400).send({
         message: "Cannot create asset",
@@ -236,6 +276,8 @@ const addInvoice = async (req, res) => {
         success: false,
       });
     }
+
+    await client.save();
     await newInvoice.save();
     await newTransaction.save();
     await addIncome.save();
@@ -254,9 +296,10 @@ const addInvoice = async (req, res) => {
 };
 const addExpense = async (req, res) => {
   try {
-    const { name, amount, date } = req.body;
+    const { name, description, amount, date } = req.body;
     const data = {
       name,
+      description,
       amount,
       date,
     };
@@ -264,13 +307,13 @@ const addExpense = async (req, res) => {
     const { remainingBalance } = await Transaction.findOne(
       {},
       {},
-      { sort: { created_at: -1 } }
+      { sort: { createdAt: -1 } }
     ).select("remainingBalance -_id");
     const newTransaction = await Transaction.create({
       name,
       amount,
       type: "Expense",
-      description: `Bought ${name}`,
+      description,
       remainingBalance: remainingBalance - amount,
     });
 
@@ -301,11 +344,62 @@ const addExpense = async (req, res) => {
     });
   }
 };
-const addAsset = async (req, res) => {
+const addIncome = async (req, res) => {
   try {
-    const { name, amount, date } = req.body;
+    const { name, description, amount, date } = req.body;
     const data = {
       name,
+      description,
+      amount,
+      date,
+    };
+    const newIncome = await Income.create(data);
+    const { remainingBalance } = await Transaction.findOne(
+      {},
+      {},
+      { sort: { createdAt: -1 } }
+    ).select("remainingBalance -_id");
+    const newTransaction = await Transaction.create({
+      name,
+      amount,
+      type: "Income",
+      description,
+      remainingBalance: remainingBalance + amount,
+    });
+
+    if (!newTransaction) {
+      return res.status(400).send({
+        message: "Cannot create transaction",
+        success: false,
+      });
+    }
+    if (!newIncome) {
+      return res.status(400).send({
+        message: "Cannot create expense",
+        success: false,
+      });
+    }
+    await newIncome.save();
+    await newTransaction.save();
+    return res.status(201).send({
+      success: true,
+      message: "Expense Added Successfully",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error,
+    });
+  }
+};
+const addInvestment = async (req, res) => {
+  try {
+    const { name, description, amount, date } = req.body;
+    const data = {
+      name,
+      description,
       amount,
       date,
     };
@@ -313,13 +407,13 @@ const addAsset = async (req, res) => {
     const { remainingBalance } = await Transaction.findOne(
       {},
       {},
-      { sort: { created_at: -1 } }
+      { sort: { createdAt: -1 } }
     ).select("remainingBalance -_id");
     const newTransaction = await Transaction.create({
       name,
       amount,
       type: "Investment",
-      description: `Bought ${name}`,
+      description,
       remainingBalance: remainingBalance - amount,
     });
 
@@ -408,28 +502,44 @@ const getEmployee = async (req, res) => {
 };
 const getClient = async (req, res) => {
   try {
-    if (req.query?.search) {
-      console.log("in not query search");
+    // For client search
+    if (req.query.search) {
       const clientId = req.query.search;
-      const name = req.query.search;
-      const clientIds = await Client.find({ clientId });
-      const clientNames = await Client.find({ name });
-      if (clientIds.length === 0 || clientNames.length === 0) {
+      const client = await Client.findOne({ clientId });
+      if (!client) {
         return res.status(404).send({
           success: false,
           message: "No client found",
         });
       }
-      const data = clientIds || clientNames;
       return res.status(200).send({
         success: true,
         message: "Client found successfully",
-        data: data,
+        data: client,
       });
     }
-    if (req.query.refer) {
-      const refer = req.query.refer;
-      const client = await Client.findOne({ clientId: refer });
+    //For invoice
+    if (req.query.clientDetails) {
+      const clientId = req.query.clientDetails;
+      const client = await Client.findOne({ clientId }).select(
+        "name email mobile"
+      );
+      if (!client) {
+        return res.status(404).send({
+          success: false,
+          message: "No client found",
+        });
+      }
+      return res.status(200).send({
+        success: true,
+        message: "Client found successfully",
+        data: client,
+      });
+    }
+    // For checking if refered by client exists or not
+    if (req.query.referedBy) {
+      const referedBy = req.query.referedBy;
+      const client = await Client.findOne({ clientId: referedBy });
       if (!client) {
         return res.status(200).send({
           success: false,
@@ -442,8 +552,9 @@ const getClient = async (req, res) => {
         // data: clients,
       });
     }
+    // For fetching recent clients for dashboard
     if (req.query?.limited) {
-      const limit = parseInt(req.query.limit);
+      const limit = parseInt(req.query.limited);
       const clients = await Client.find({})
         .limit(limit)
         .select("pic name businessName serviceDuration -_id");
@@ -453,8 +564,10 @@ const getClient = async (req, res) => {
         message: "Clietns Fetched Successfully",
       });
     }
-
-    const clients = await Client.find({});
+    // get paginated data
+    const clients = await Client.find({}).sort({ createdAt: -1 }).populate({
+      path: "invoices",
+    });
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const startIndex = (page - 1) * limit;
@@ -492,7 +605,7 @@ const getClient = async (req, res) => {
 const getInvoice = async (req, res) => {
   try {
     const { status } = req.query;
-    const invoices = await Invoice.find({ status });
+    const invoices = await Invoice.find({ status }).populate("client_id");
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -550,6 +663,80 @@ const getExpense = async (req, res) => {
       };
     }
     results.results = expenses.slice(startIndex, endIndex);
+
+    return res.status(200).send({
+      data: results,
+      success: true,
+      message: "Expenses Fetched Successfully",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).send({
+      success: false,
+      message: "Internal server Error",
+    });
+  }
+};
+const getAsset = async (req, res) => {
+  try {
+    const assets = await Asset.find({});
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    const results = {};
+    results.totalCount = assets.length;
+    results.totalPages = Math.ceil(assets.length / limit);
+    if (endIndex < assets.length) {
+      results.next = {
+        page: page + 1,
+        limit: limit,
+      };
+    }
+    if (startIndex > 0) {
+      results.previous = {
+        page: page - 1,
+        limit: limit,
+      };
+    }
+    results.results = assets.slice(startIndex, endIndex);
+
+    return res.status(200).send({
+      data: results,
+      success: true,
+      message: "Expenses Fetched Successfully",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).send({
+      success: false,
+      message: "Internal server Error",
+    });
+  }
+};
+const getIncome = async (req, res) => {
+  try {
+    const assets = await Income.find({});
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    const results = {};
+    results.totalCount = assets.length;
+    results.totalPages = Math.ceil(assets.length / limit);
+    if (endIndex < assets.length) {
+      results.next = {
+        page: page + 1,
+        limit: limit,
+      };
+    }
+    if (startIndex > 0) {
+      results.previous = {
+        page: page - 1,
+        limit: limit,
+      };
+    }
+    results.results = assets.slice(startIndex, endIndex);
 
     return res.status(200).send({
       data: results,
@@ -635,11 +822,12 @@ const getCurrentAmount = async (req, res) => {
 };
 const getTransactionForBoxes = async (req, res) => {
   try {
-    // const assets = await Asset.find({});
-    // const investment = await Transaction.find({ type: "Investment" });
-    const invoices = await Invoice.find({status:"Pending"}).select("totalAmount -_id");
-    const income = await Transaction.find({ type: "Income" });
+    const invoices = await Invoice.find({ status: "Pending" }).select(
+      "totalAmount -_id"
+    );
+    const income = await Income.find({});
     const expenses = await Expense.find({});
+    const investments = await Asset.find({});
 
     const upcoming = invoices.reduce((acc, curr) => {
       return acc + curr.totalAmount;
@@ -647,9 +835,13 @@ const getTransactionForBoxes = async (req, res) => {
     const incomeAmount = income.reduce((acc, curr) => {
       return acc + curr.amount;
     }, 0);
-    const expenseAmount = expenses.reduce((acc, curr) => {
+    const totalexpense = expenses.reduce((acc, curr) => {
       return acc + curr.amount;
     }, 0);
+    const totalInvestment = investments.reduce((acc, curr) => {
+      return acc + curr.amount;
+    }, 0);
+    const expenseAmount = totalexpense + totalInvestment;
     const currentAmount = incomeAmount - expenseAmount;
     const data = {
       upcoming,
@@ -672,43 +864,6 @@ const getTransactionForBoxes = async (req, res) => {
   }
 };
 
-const getAsset = async (req, res) => {
-  try {
-    const assets = await Asset.find({});
-    const page = parseInt(req.query.page);
-    const limit = parseInt(req.query.limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const results = {};
-    results.totalCount = assets.length;
-    results.totalPages = Math.ceil(assets.length / limit);
-    if (endIndex < assets.length) {
-      results.next = {
-        page: page + 1,
-        limit: limit,
-      };
-    }
-    if (startIndex > 0) {
-      results.previous = {
-        page: page - 1,
-        limit: limit,
-      };
-    }
-    results.results = assets.slice(startIndex, endIndex);
-
-    return res.status(200).send({
-      data: results,
-      success: true,
-      message: "Expenses Fetched Successfully",
-    });
-  } catch (error) {
-    console.log(error);
-    return res.status(500).send({
-      success: false,
-      message: "Internal server Error",
-    });
-  }
-};
 const getRefer = async (req, res) => {
   try {
     const { refer } = req.query;
@@ -761,7 +916,9 @@ const getInvoiceLength = async (req, res) => {
 };
 const workNotAlloted = async (req, res) => {
   try {
-    const work = await Client.find({ allotedWork: false });
+    const work = await Invoice.find({ allotedWork: false }).select(
+      "name createdAt service serviceDuration "
+    );
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -800,7 +957,7 @@ const workNotAlloted = async (req, res) => {
 const allotWork = async (req, res) => {
   try {
     const { employeeId, clientId } = req.body;
-    const allot = await Client.findOneAndUpdate(
+    const allot = await Invoice.findOneAndUpdate(
       { clientId },
       { $set: { allotedTo: employeeId, allotedWork: true } }
     );
@@ -841,7 +998,7 @@ const changeStatus = async (req, res) => {
     const { remainingBalance } = await Transaction.findOne(
       {},
       {},
-      { sort: { created_at: -1 } }
+      { sort: { createdAt: -1 } }
     ).select("remainingBalance -_id");
     const newTransaction = await Transaction.create({
       name: invoice.name,
@@ -950,6 +1107,7 @@ const pendingSalary = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 const giveSalary = async (req, res) => {
   try {
     const { id } = req.query;
@@ -1006,6 +1164,97 @@ const giveSalary = async (req, res) => {
     });
   }
 };
+
+// const monthlyCompare = async (req, res) => {
+//   try {
+//     // Dummy data
+//     const dummyData = {
+//       totalIncomeCurrent: 50000,
+//       totalIncomePrevious: 45000,
+//       totalExpenseCurrent: 30000,
+//       totalExpensePrevious: 28000,
+//       totalSavesCurrent: 20000,
+//       totalSavesPrevious: 18000,
+//       totalInvestmentCurrent: 10000,
+//       totalInvestmentPrevious: 8000,
+//       totalUpcomingCurrent: 15000,
+//       totalUpcomingPrevious: 12000,
+//     };
+
+//     // Create a new MonthlyCompare instance with the dummy data
+//     const monthlyCompare = new MonthlyCompare(dummyData);
+
+//     // Save the data to the database
+//     await monthlyCompare.save();
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Dummy data inserted successfully",
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//     });
+//   }
+// };
+
+const compare = async (req, res) => {
+  try {
+    // Fetch the latest record from the monthlyCompare collection
+    const latestMonthlyData = await MonthlyCompare.findOne({}, {}, { sort: { 'createdAt': -1 } });
+
+    if (!latestMonthlyData) {
+      return res.status(404).json({
+        success: false,
+        message: 'No data found',
+      });
+    }
+
+    // Extract values from the latest record
+    const {
+      totalIncomeCurrent,
+      totalIncomePrevious,
+      totalExpenseCurrent,
+      totalExpensePrevious,
+      totalSavesCurrent,
+      totalSavesPrevious,
+      totalInvestmentCurrent,
+      totalInvestmentPrevious,
+      totalUpcomingCurrent,
+      totalUpcomingPrevious,
+    } = latestMonthlyData;
+
+    // Calculate percentage changes
+    const percentageChanges = {
+      totalIncome: calculatePercentageChange(totalIncomePrevious, totalIncomeCurrent),
+      totalExpense: calculatePercentageChange(totalExpensePrevious, totalExpenseCurrent),
+      totalSaves: calculatePercentageChange(totalSavesPrevious, totalSavesCurrent),
+      totalInvestment: calculatePercentageChange(totalInvestmentPrevious, totalInvestmentCurrent),
+      totalUpcoming: calculatePercentageChange(totalUpcomingPrevious, totalUpcomingCurrent),
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: 'Comparison successful',
+      data: percentageChanges,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+}
+function calculatePercentageChange(previousValue, currentValue) {
+  if (previousValue === 0) {
+    return currentValue === 0 ? 0 : 100; // Handle division by zero
+  }
+
+  return ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
+}
 module.exports = {
   login,
   signup,
@@ -1016,9 +1265,11 @@ module.exports = {
   getClient,
   getInvoice,
   addExpense,
-  addAsset,
+  addInvestment,
+  addIncome,
   getExpense,
   getAsset,
+  getIncome,
   getRefer,
   getInvoiceLength,
   workNotAlloted,
@@ -1029,4 +1280,6 @@ module.exports = {
   getTransaction,
   getCurrentAmount,
   getTransactionForBoxes,
+  // monthlyCompare,
+  compare
 };

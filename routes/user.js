@@ -10,7 +10,6 @@ const {
   getClient,
   getAsset,
   getExpense,
-  addAsset,
   addExpense,
   getRefer,
   addInvoice,
@@ -24,6 +23,10 @@ const {
   getTransaction,
   getCurrentAmount,
   getTransactionForBoxes,
+  addInvestment,
+  addIncome,
+  getIncome,
+  compare,
 } = require("../controllers/user");
 const { authUser } = require("../middlewares/auth");
 const User = require("../models/User");
@@ -77,8 +80,11 @@ router.post("/addInvoice", addInvoice);
 //POST || Add Expense
 router.post("/addExpense", addExpense);
 
-//POST || Add Asset
-router.post("/addAsset", addAsset);
+//POST || Add Investment
+router.post("/addInvestment", addInvestment);
+
+//POST || Add Income
+router.post("/addIncome", addIncome);
 
 //GET || Fetch Current Amount
 router.get("/currentAmount",getCurrentAmount)
@@ -97,6 +103,9 @@ router.get("/invoices", getInvoice);
 
 //GET || Fetch All Assets
 router.get("/assets", getAsset);
+
+//GET || Fetch All Income
+router.get("/incomes", getIncome);
 
 //GET || Fetch All Expenses
 router.get("/expenses", getExpense);
@@ -138,4 +147,8 @@ router.post(
     });
   }
 );
+
+
+// router.post('/monthlyCompare', monthlyCompare)
+router.post('/compare', compare)
 module.exports = router;

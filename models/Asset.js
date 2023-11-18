@@ -5,6 +5,10 @@ const assetSchema = new mongoose.Schema(
       type: String,
       required: [true, "Name of asset is required"],
     },
+    description: {
+      type: String,
+      required: [true, "Description of asset is required"],
+    },
     amount: {
       type: Number,
       required: [true, "Amount of asset is required"],
