@@ -1022,29 +1022,43 @@ const changeStatus = async (req, res) => {
   try {
     const _id = req.query.id;
 
+    const { remainingBalance } = await Transaction.findOne(
+      {},
+      {},
+      { sort: { createdAt: -1 } }
+    );
     const invoice = await Invoice.findByIdAndUpdate(
       { _id },
       { $set: { status: "Paid" } },
       { new: true }
     );
+    const name = await Client.findById(invoice.client_id).select("name");
     if (!invoice) {
       return res.status(404).send({
         success: false,
         message: "Invoice not found",
       });
     }
-    const { remainingBalance } = await Transaction.findOne(
-      {},
-      {},
-      { sort: { createdAt: -1 } }
-    ).select("remainingBalance -_id");
     const newTransaction = await Transaction.create({
-      name: invoice.name,
+      name: name.name,
       amount: invoice.totalAmount,
       type: "Income",
-      description: `Paid by ${invoice.name}`,
-      remainingBalance: remainingBalance + invoice.totalAmount,
+      description: `Paid by ${name.name}`,
+      remainingBalance:
+        remainingBalance + invoice.totalAmount - invoice.advanceAmount,
     });
+    const newIncome = await Income.create({
+      name: "Invoice Payment",
+      description: `Paid by ${name.name}`,
+      amount: invoice.totalAmount,
+      date: new Date(),
+    });
+    if (!newIncome) {
+      return res.status(400).send({
+        message: "Cannot create income",
+        success: false,
+      });
+    }
     if (!newTransaction) {
       return res.status(400).send({
         message: "Cannot create transaction",
@@ -1053,6 +1067,7 @@ const changeStatus = async (req, res) => {
     }
     await newTransaction.save();
     await invoice.save();
+    await newIncome.save();
 
     return res.status(200).send({
       success: true,
