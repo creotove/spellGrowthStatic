@@ -214,6 +214,7 @@ const addInvoice = async (req, res) => {
       paymentMethod,
       invoiceNumber,
       serviceDuration,
+      onlinePaymentMethod,
     };
     const newInvoice = await Invoice.create(data);
     const balance =
@@ -465,7 +466,7 @@ const getEmployee = async (req, res) => {
         data: data,
       });
     }
-    const employees = await Employee.find({});
+    const employees = await Employee.find({}).sort({ createdAt: -1 });
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const startIndex = (page - 1) * limit;
@@ -642,7 +643,44 @@ const getInvoice = async (req, res) => {
 };
 const getExpense = async (req, res) => {
   try {
-    const expenses = await Expense.find({});
+    const expenses = await Expense.find({}).sort({ createdAt: -1 });
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    const results = {};
+    results.totalCount = expenses.length;
+    results.totalPages = Math.ceil(expenses.length / limit);
+    if (endIndex < expenses.length) {
+      results.next = {
+        page: page + 1,
+        limit: limit,
+      };
+    }
+    if (startIndex > 0) {
+      results.previous = {
+        page: page - 1,
+        limit: limit,
+      };
+    }
+    results.results = expenses.slice(startIndex, endIndex);
+
+    return res.status(200).send({
+      data: results,
+      success: true,
+      message: "Expenses Fetched Successfully",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).send({
+      success: false,
+      message: "Internal server Error",
+    });
+  }
+};
+const getReports = async (req, res) => {
+  try {
+    const expenses = await MonthlyCompare.find({}).sort({ createdAt: -1 });
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -679,7 +717,7 @@ const getExpense = async (req, res) => {
 };
 const getAsset = async (req, res) => {
   try {
-    const assets = await Asset.find({});
+    const assets = await Asset.find({}).sort({ createdAt: -1 });
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -716,7 +754,7 @@ const getAsset = async (req, res) => {
 };
 const getIncome = async (req, res) => {
   try {
-    const assets = await Income.find({});
+    const assets = await Income.find({}).sort({ createdAt: -1 });
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -916,9 +954,9 @@ const getInvoiceLength = async (req, res) => {
 };
 const workNotAlloted = async (req, res) => {
   try {
-    const work = await Invoice.find({ allotedWork: false }).select(
-      "name createdAt services serviceDuration dueDate"
-    ).populate("client_id");
+    const work = await Invoice.find({ allotedWork: false })
+      .select("name createdAt services serviceDuration dueDate")
+      .populate("client_id");
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
     const startIndex = (page - 1) * limit;
@@ -1033,7 +1071,9 @@ const pendingSalary = async (req, res) => {
     if (req.query?.status) {
       const { status } = req.query;
       const employees = await Employee.find({ salaryStatus: status })
-        .select("name salaryStatus salary pic name expertize advanceSalary mobile")
+        .select(
+          "name salaryStatus salary pic name expertize advanceSalary mobile"
+        )
         .sort({ createdAt: -1 });
       const page = parseInt(req.query.page);
       const limit = parseInt(req.query.limit);
@@ -1118,25 +1158,32 @@ const giveSalary = async (req, res) => {
         message: "Employee not found",
       });
     }
+    const advanceSalary = employee.advanceSalary;
+    employee.salaryHistory.push({
+      month: new Date().getMonth() + 1,
+      year: new Date().getFullYear(),
+      amount: employee.salary - advanceSalary,
+    });
+
     const { remainingBalance } = await Transaction.findOne(
       {},
       {},
       { sort: { createdAt: -1 } }
-      ).select("-_id");
-      const newTransaction = await Transaction.create({
-        name: "Salary",
-        amount: employee.salary,
-        type: "Expense",
-        description: `Salary to ${employee.name}`,
-        remainingBalance: remainingBalance - employee.salary,
-      });
-      const addExpense = await Expense.create({
-        name: "Salary",
-        description: `Salary to ${employee.name}`,
-        amount: employee.salary,
-        date: new Date(),
-      });
-      
+    ).select("-_id");
+    const newTransaction = await Transaction.create({
+      name: "Salary",
+      amount: employee.salary - advanceSalary,
+      type: "Expense",
+      description: `Salary to ${employee.name}`,
+      remainingBalance: remainingBalance - employee.salary,
+    });
+    const addExpense = await Expense.create({
+      name: "Salary",
+      description: `Salary to ${employee.name}`,
+      amount: employee.salary - advanceSalary,
+      date: new Date(),
+    });
+
     if (!addExpense) {
       return res.status(400).send({
         message: "Cannot create expense",
@@ -1152,6 +1199,7 @@ const giveSalary = async (req, res) => {
     }
     await newTransaction.save();
     employee.salaryStatus = "Paid";
+    employee.advanceSalary = Math.abs(employee.advanceSalary - employee.salary);
     await employee.save();
     await addExpense.save();
     return res.status(200).send({
@@ -1164,6 +1212,176 @@ const giveSalary = async (req, res) => {
       message: "Internal server error",
     });
   }
+};
+const giveAdvanceSalary = async (req, res) => {
+  try {
+    const { id, amt } = req.query;
+    const amount = parseInt(amt);
+    const employee = await Employee.findById(id);
+    if (!employee) {
+      return res.status(404).send({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+    const advanceSalary = employee.advanceSalary + amount;
+    employee.advanceSalary = advanceSalary;
+    employee.salaryHistory.push({
+      month: new Date().getMonth() + 1,
+      year: new Date().getFullYear(),
+      amount,
+    });
+
+    const { remainingBalance } = await Transaction.findOne(
+      {},
+      {},
+      { sort: { createdAt: -1 } }
+    ).select("-_id");
+    const newTransaction = await Transaction.create({
+      name: "Salary",
+      amount,
+      type: "Expense",
+      description: `Advance salary to ${employee.name}`,
+      remainingBalance: remainingBalance - employee.advanceSalary,
+    });
+    const addExpense = await Expense.create({
+      name: "Salary",
+      description: `Advance salary to ${employee.name}`,
+      amount: employee.salary - advanceSalary,
+      date: new Date(),
+    });
+
+    if (!addExpense) {
+      return res.status(400).send({
+        message: "Cannot create expense",
+        success: false,
+      });
+    }
+
+    if (!newTransaction) {
+      return res.status(400).send({
+        message: "Cannot create transaction",
+        success: false,
+      });
+    }
+    await newTransaction.save();
+    await employee.save();
+    await addExpense.save();
+    return res.status(200).send({
+      success: true,
+      message: "Salary paid successfully",
+    });
+  } catch (error) {
+    return res.status(500).send({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const compare = async (req, res) => {
+  try {
+    // Fetch the latest record from the monthlyCompare collection
+    const latestMonthlyData = await MonthlyCompare.findOne(
+      {},
+      {},
+      { sort: { createdAt: -1 } }
+    );
+
+    if (!latestMonthlyData) {
+      return res.status(404).json({
+        success: false,
+        message: "No data found",
+      });
+    }
+
+    // Extract values from the latest record
+    const {
+      totalIncomeCurrent,
+      totalIncomePrevious,
+      totalExpenseCurrent,
+      totalExpensePrevious,
+      totalSavesCurrent,
+      totalSavesPrevious,
+      totalInvestmentCurrent,
+      totalInvestmentPrevious,
+      totalUpcomingCurrent,
+      totalUpcomingPrevious,
+    } = latestMonthlyData;
+
+    // Calculate percentage changes
+    const percentageChanges = {
+      totalIncome: calculatePercentageChange(
+        totalIncomePrevious,
+        totalIncomeCurrent
+      ),
+      totalExpense: calculatePercentageChange(
+        totalExpensePrevious,
+        totalExpenseCurrent
+      ),
+      totalSaves: calculatePercentageChange(
+        totalSavesPrevious,
+        totalSavesCurrent
+      ),
+      totalInvestment: calculatePercentageChange(
+        totalInvestmentPrevious,
+        totalInvestmentCurrent
+      ),
+      totalUpcoming: calculatePercentageChange(
+        totalUpcomingPrevious,
+        totalUpcomingCurrent
+      ),
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Comparison successful",
+      data: percentageChanges,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+function calculatePercentageChange(previousValue, currentValue) {
+  if (previousValue === 0) {
+    return currentValue === 0 ? 0 : 100; // Handle division by zero
+  }
+
+  return ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
+}
+module.exports = {
+  login,
+  signup,
+  addEmployee,
+  addClient,
+  addInvoice,
+  getEmployee,
+  getClient,
+  getInvoice,
+  addExpense,
+  addInvestment,
+  addIncome,
+  getExpense,
+  getAsset,
+  getIncome,
+  getRefer,
+  getInvoiceLength,
+  workNotAlloted,
+  allotWork,
+  changeStatus,
+  pendingSalary,
+  giveSalary,
+  getTransaction,
+  getCurrentAmount,
+  getTransactionForBoxes,
+  // monthlyCompare,
+  compare,
+  giveAdvanceSalary,
+  getReports,
 };
 
 // const monthlyCompare = async (req, res) => {
@@ -1200,87 +1418,3 @@ const giveSalary = async (req, res) => {
 //     });
 //   }
 // };
-
-const compare = async (req, res) => {
-  try {
-    // Fetch the latest record from the monthlyCompare collection
-    const latestMonthlyData = await MonthlyCompare.findOne({}, {}, { sort: { 'createdAt': -1 } });
-
-    if (!latestMonthlyData) {
-      return res.status(404).json({
-        success: false,
-        message: 'No data found',
-      });
-    }
-
-    // Extract values from the latest record
-    const {
-      totalIncomeCurrent,
-      totalIncomePrevious,
-      totalExpenseCurrent,
-      totalExpensePrevious,
-      totalSavesCurrent,
-      totalSavesPrevious,
-      totalInvestmentCurrent,
-      totalInvestmentPrevious,
-      totalUpcomingCurrent,
-      totalUpcomingPrevious,
-    } = latestMonthlyData;
-
-    // Calculate percentage changes
-    const percentageChanges = {
-      totalIncome: calculatePercentageChange(totalIncomePrevious, totalIncomeCurrent),
-      totalExpense: calculatePercentageChange(totalExpensePrevious, totalExpenseCurrent),
-      totalSaves: calculatePercentageChange(totalSavesPrevious, totalSavesCurrent),
-      totalInvestment: calculatePercentageChange(totalInvestmentPrevious, totalInvestmentCurrent),
-      totalUpcoming: calculatePercentageChange(totalUpcomingPrevious, totalUpcomingCurrent),
-    };
-
-    return res.status(200).json({
-      success: true,
-      message: 'Comparison successful',
-      data: percentageChanges,
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-}
-function calculatePercentageChange(previousValue, currentValue) {
-  if (previousValue === 0) {
-    return currentValue === 0 ? 0 : 100; // Handle division by zero
-  }
-
-  return ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
-}
-module.exports = {
-  login,
-  signup,
-  addEmployee,
-  addClient,
-  addInvoice,
-  getEmployee,
-  getClient,
-  getInvoice,
-  addExpense,
-  addInvestment,
-  addIncome,
-  getExpense,
-  getAsset,
-  getIncome,
-  getRefer,
-  getInvoiceLength,
-  workNotAlloted,
-  allotWork,
-  changeStatus,
-  pendingSalary,
-  giveSalary,
-  getTransaction,
-  getCurrentAmount,
-  getTransactionForBoxes,
-  // monthlyCompare,
-  compare
-};

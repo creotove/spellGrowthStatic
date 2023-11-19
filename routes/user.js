@@ -27,7 +27,9 @@ const {
   addInvestment,
   addIncome,
   getIncome,
+  getReports,
   compare,
+  giveAdvanceSalary,
 } = require("../controllers/user");
 const { authUser } = require("../middlewares/auth");
 const User = require("../models/User");
@@ -113,6 +115,9 @@ router.get("/incomes", getIncome);
 //GET || Fetch All Expenses
 router.get("/expenses", getExpense);
 
+//GET || Fetch All Transactions of month
+router.get("/reports", getReports);
+
 //GET || Fetch All Transactions
 router.get("/transactions", getTransaction);
 
@@ -136,6 +141,11 @@ router.patch("/changeStatus", changeStatus);
 
 //PATCH || Paying Salary to Employee
 router.patch("/giveSalary", giveSalary);
+
+//PATCH || Paying advance salary to Employee
+router.patch("/giveAdvanceSalary", giveAdvanceSalary);
+
+
 
 //Try
 router.post(
