@@ -245,7 +245,7 @@ const addInvoice = async (req, res) => {
       });
     }
 
-    const newTransaction = await new Transaction();
+    const newTransaction = new Transaction();
     newTransaction.name = client.name;
     newTransaction.amount = advance;
     newTransaction.type = "Income";

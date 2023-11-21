@@ -247,15 +247,12 @@ function calculateMonthlyData(transactions) {
         break;
     }
   });
-  console.log(result);
   return result;
 }
 
 // Helper function to calculate percentage changes
 function calculatePercentageChanges(previousData, currentData) {
   const percentageChanges = {};
-  console.log(previousData,249);
-  console.log(currentData,250);
 
   for (const category in currentData) {
     if (currentData.hasOwnProperty(category)) {
